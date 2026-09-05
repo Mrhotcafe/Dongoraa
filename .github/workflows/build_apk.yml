@@ -1,3 +1,5 @@
+yaml
+
 name: Remote APK Builder
 
 
@@ -7,6 +9,12 @@ on:
   repository_dispatch:
 
     types: [trigger-apk-build]
+
+
+
+permissions:
+
+  contents: write
 
 
 
@@ -84,16 +92,35 @@ jobs:
 
 
 
-      - name: Upload APK to the app callback
+      - name: Publish APK as a Release and notify the app
+
+        env:
+
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         run: |
 
           APK=$(find project/android/app/build/outputs/apk/release -name "*.apk" | head -n1)
 
-          echo "Uploading $APK"
+          TAG="apk-${{ github.event.client_payload.job_id }}"
+
+          gh release create "$TAG" "$APK" --repo "${{ github.repository }}" --title "$TAG" --notes "Automated APK build"
+
+          URL=$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[0].url')
 
           curl --fail-with-body --retry 3 -X POST "${{ github.event.client_payload.callback_url }}" \
 
             -H "Authorization: Bearer ${{ secrets.BUILD_CALLBACK_SECRET }}" \
 
-            -F "file=@$APK;type=application/vnd.android.package-archive"
+            -H "Content-Type: application/json" \
+
+            -d "{\"apk_url\":\"$URL\"}"
+
+
+
+
+
+
+
+
+
