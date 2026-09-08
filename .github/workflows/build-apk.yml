@@ -19,11 +19,24 @@ jobs:
           cp -R "$inner". project/
           ls -la project
 
+      - name: Detect project type (Expo vs native Android)
+        id: detect
+        run: |
+          if [ -f project/settings.gradle ] || [ -f project/settings.gradle.kts ]; then
+            echo "type=native" >> "$GITHUB_OUTPUT"
+            echo "Detected NATIVE Android (Kotlin/Gradle) project"
+          else
+            echo "type=expo" >> "$GITHUB_OUTPUT"
+            echo "Detected Expo React Native project"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.detect.outputs.type == 'expo'
         with:
           node-version: 20
 
-      - name: Install deps & prebuild native Android project
+      - name: Install deps & prebuild native Android project (Expo)
+        if: steps.detect.outputs.type == 'expo'
         working-directory: project
         run: |
           npm install
@@ -39,10 +52,21 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Build release APK
-        working-directory: project/android
         run: |
-          chmod +x ./gradlew
-          ./gradlew assembleRelease
+          set -e
+          if [ "${{ steps.detect.outputs.type }}" = "native" ]; then
+            cd project
+            # Generate the Gradle wrapper using the runner's system Gradle, then build.
+            if [ ! -x ./gradlew ]; then
+              gradle wrapper --gradle-version 8.9 --no-daemon
+            fi
+            chmod +x ./gradlew
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          else
+            cd project/android
+            chmod +x ./gradlew
+            ./gradlew assembleRelease --no-daemon
+          fi
 
       - name: Sign release APK (Play Store ready)
         env:
@@ -52,15 +76,15 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -e
+          APK_IN=$(find project -path "*apk/release*" -name "*.apk" | head -n1)
+          echo "Found release APK: $APK_IN"
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "No release keystore secret found — leaving the debug-signed APK as-is."
-            APK=$(find project/android/app/build/outputs/apk/release -name "*.apk" | head -n1)
-            mkdir -p project/dist && cp "$APK" project/dist/app-release.apk
+            echo "No release keystore secret found — leaving the build-signed APK as-is."
+            mkdir -p project/dist && cp "$APK_IN" project/dist/app-release.apk
             exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
           BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n1)
-          APK_IN=$(find project/android/app/build/outputs/apk/release -name "*.apk" | head -n1)
           "${BUILD_TOOLS}zipalign" -f -p 4 "$APK_IN" /tmp/aligned.apk
           "${BUILD_TOOLS}apksigner" sign \
             --ks /tmp/release.keystore \
