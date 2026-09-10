@@ -33,6 +33,43 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Write live session script
+        run: |
+          cat > /tmp/live_session.sh <<'DHSH'
+          set +e
+          adb wait-for-device
+          RP="$DH/api/preview/session/$SID"
+          curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"installing"}' >/dev/null
+          adb install -r "$APK"
+          curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"restarting"}' >/dev/null
+          adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
+          ( cd /opt/ws-scrcpy && WS_SCRCPY_PORT=8000 node dist/index.js > /tmp/ws.log 2>&1 & )
+          sleep 6
+          cloudflared tunnel --no-autoupdate --url http://localhost:8000 > /tmp/cf.log 2>&1 &
+          URL=""
+          for i in $(seq 1 40); do URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1); [ -n "$URL" ] && break; sleep 2; done
+          SERIAL=$(adb devices | awk 'NR==2{print $1}')
+          API=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+          SHA=$(git rev-parse HEAD 2>/dev/null | cut -c1-10)
+          curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d "{\"status\":\"live\",\"tunnel_url\":\"$URL\",\"api_level\":\"$API\",\"serial\":\"$SERIAL\",\"commit_sha\":\"$SHA\",\"run_id\":\"$GITHUB_RUN_ID\"}" >/dev/null
+          for i in $(seq 1 600); do
+            RESP=$(curl -s "$RP/poll" -H "X-Session-Token: $TOK")
+            echo "$RESP" | grep -q '"continue":false' && break
+            PROC=$(adb shell pidof "$PKG" | tr -d '\r'); ST="running"; [ -z "$PROC" ] && ST="crashed"
+            echo "$RESP" | grep -q '"back"' && adb shell input keyevent 4
+            echo "$RESP" | grep -q '"home"' && adb shell input keyevent 3
+            echo "$RESP" | grep -q '"restart"' && { adb shell am force-stop "$PKG"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; }
+            echo "$RESP" | grep -q '"clear"' && { adb shell pm clear "$PKG"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; }
+            echo "$RESP" | grep -q '"rotate"' && { R=$(adb shell settings get system user_rotation | tr -d '\r'); NR=1; [ "$R" = "1" ] && NR=0; adb shell settings put system accelerometer_rotation 0; adb shell settings put system user_rotation $NR; }
+            echo "$RESP" | grep -q '"logcat"' && { adb logcat -d -t 200 > /tmp/lg.txt 2>/dev/null; curl -s -X POST "$RP/logcat" -H "X-Session-Token: $TOK" -H 'Content-Type: text/plain' --data-binary @/tmp/lg.txt >/dev/null; }
+            echo "$RESP" | grep -q '"reload"' && { curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"building"}' >/dev/null; git fetch origin "$BR"; git reset --hard "origin/$BR"; if echo "$RESP" | grep -q '"kind":"full"'; then curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"reinstalling"}' >/dev/null; ( cd dh-android && gradle assembleDebug --no-daemon ); adb install -r "$APK"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; else curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"applying_changes"}' >/dev/null; ( cd dh-android && gradle installDebug --no-daemon ); adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; fi; curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"reconnected"}' >/dev/null; curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"live"}' >/dev/null; }
+            adb exec-out screencap -p > /tmp/frame.png 2>/dev/null
+            curl -s -X POST "$RP/heartbeat?status=$ST" -H "X-Session-Token: $TOK" -F "frame=@/tmp/frame.png" >/dev/null
+            sleep 5
+          done
+          curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"disconnected"}' >/dev/null
+          DHSH
+          chmod +x /tmp/live_session.sh
       - name: Live interactive emulator session
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -48,35 +85,4 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            set +e
-            RP="$DH/api/preview/session/$SID"
-            curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"installing"}' >/dev/null
-            adb install -r "$APK"
-            curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"restarting"}' >/dev/null
-            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
-            ( cd /opt/ws-scrcpy && WS_SCRCPY_PORT=8000 node dist/index.js > /tmp/ws.log 2>&1 & )
-            sleep 6
-            cloudflared tunnel --no-autoupdate --url http://localhost:8000 > /tmp/cf.log 2>&1 &
-            URL=""
-            for i in $(seq 1 40); do URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1); [ -n "$URL" ] && break; sleep 2; done
-            SERIAL=$(adb devices | awk 'NR==2{print $1}')
-            API=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
-            SHA=$(git rev-parse HEAD 2>/dev/null | cut -c1-10)
-            curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d "{\"status\":\"live\",\"tunnel_url\":\"$URL\",\"api_level\":\"$API\",\"serial\":\"$SERIAL\",\"commit_sha\":\"$SHA\",\"run_id\":\"$GITHUB_RUN_ID\"}" >/dev/null
-            for i in $(seq 1 600); do
-              RESP=$(curl -s "$RP/poll" -H "X-Session-Token: $TOK")
-              echo "$RESP" | grep -q '"continue":false' && break
-              PROC=$(adb shell pidof "$PKG" | tr -d '\r'); ST="running"; [ -z "$PROC" ] && ST="crashed"
-              echo "$RESP" | grep -q '"back"' && adb shell input keyevent 4
-              echo "$RESP" | grep -q '"home"' && adb shell input keyevent 3
-              echo "$RESP" | grep -q '"restart"' && { adb shell am force-stop "$PKG"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; }
-              echo "$RESP" | grep -q '"clear"' && { adb shell pm clear "$PKG"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; }
-              echo "$RESP" | grep -q '"rotate"' && { R=$(adb shell settings get system user_rotation | tr -d '\r'); NR=1; [ "$R" = "1" ] && NR=0; adb shell settings put system accelerometer_rotation 0; adb shell settings put system user_rotation $NR; }
-              echo "$RESP" | grep -q '"logcat"' && { adb logcat -d -t 200 > /tmp/lg.txt 2>/dev/null; curl -s -X POST "$RP/logcat" -H "X-Session-Token: $TOK" -H 'Content-Type: text/plain' --data-binary @/tmp/lg.txt >/dev/null; }
-              echo "$RESP" | grep -q '"reload"' && { curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"building"}' >/dev/null; git fetch origin "$BR"; git reset --hard "origin/$BR"; ( cd dh-android && gradle assembleDebug --no-daemon ); adb install -r "$APK"; adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1; curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -d '{"status":"live"}' >/dev/null; }
-              adb exec-out screencap -p > /tmp/frame.png 2>/dev/null
-              curl -s -X POST "$RP/heartbeat?status=$ST" -H "X-Session-Token: $TOK" -F "frame=@/tmp/frame.png" >/dev/null
-              sleep 5
-            done
-            curl -s -X POST "$RP/report" -H "X-Session-Token: $TOK" -H 'Content-Type: application/json' -d '{"status":"disconnected"}' >/dev/null
+          script: bash /tmp/live_session.sh
