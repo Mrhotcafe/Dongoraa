@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -159,7 +160,7 @@ private fun Button(onClick: () -> Unit, enabled: Boolean, modifier: Modifier, te
         modifier = modifier.clipTag(testID), content = content)
 }
 
-private fun Modifier.clipTag(tag: String): Modifier = this.then(androidx.compose.ui.platform.testTag(tag))
+private fun Modifier.clipTag(tag: String): Modifier = this.testTag(tag)
 
 @Composable
 private fun ProcCard(title: String, bypassed: Boolean, onBypass: (Boolean) -> Unit, content: @Composable ColumnScope.() -> Unit) {
