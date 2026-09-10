@@ -32,11 +32,14 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             adb install -r dh-android/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c || true
             adb shell monkey -p host.dh.app -c android.intent.category.LAUNCHER 1
-            sleep 12
+            sleep 10
             adb exec-out screencap -p > screenshot.png
             adb shell dumpsys activity activities | grep -iE 'ResumedActivity|mResumedActivity' > activity.txt || true
-            adb logcat -d -t 400 > logcat.txt || true
+            adb shell pidof host.dh.app > pidof.txt || true
+            adb logcat -d -b crash > crash.txt || true
+            adb logcat -d > logcat.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -44,5 +47,7 @@ jobs:
           path: |
             screenshot.png
             activity.txt
+            pidof.txt
+            crash.txt
             logcat.txt
             dh-android/app/build/outputs/apk/debug/app-debug.apk
