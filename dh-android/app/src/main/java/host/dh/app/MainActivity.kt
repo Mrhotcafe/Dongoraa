@@ -8,8 +8,6 @@ class MainActivity : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContentView(R.layout.activity_main)
-    // DH CONTROLLED DEFECT: force a runtime crash on launch
-    val boom: String? = null
-    findViewById<TextView>(R.id.headline).text = boom!!.length.toString()
+    findViewById<TextView>(R.id.headline).text = getString(R.string.headline)
   }
 }
