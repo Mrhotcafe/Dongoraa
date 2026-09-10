@@ -148,7 +148,10 @@ fun EditorScreen(fileName: String, onBack: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(6.dp))
-            TextButton(onClick = { tests = DspChain.selfTest() }) { Text("Run DSP self-tests", color = Accent) }
+            TextButton(onClick = {
+                val r = DspChain.selfTest(); tests = r
+                status = "DSP self-tests: ${r.count { it.second }}/${r.size} passed"
+            }) { Text("Run DSP self-tests", color = Accent) }
         }
     }
 }
