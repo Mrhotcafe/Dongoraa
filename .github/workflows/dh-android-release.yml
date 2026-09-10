@@ -1,0 +1,58 @@
+name: DH Android Release
+on:
+  workflow_dispatch:
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build release APK + AAB
+        working-directory: dh-android
+        run: gradle assembleRelease bundleRelease --no-daemon --stacktrace
+      - name: Generate keystore and sign artifacts
+        working-directory: dh-android
+        run: |
+          keytool -genkeypair -v -keystore dh-release.jks -alias dh -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass dhstore -keypass dhstore \
+            -dname "CN=DH, OU=DH, O=DH, L=NA, ST=NA, C=NA"
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          APKS="$ANDROID_HOME/build-tools/$BT/apksigner"
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          "$APKS" sign --ks dh-release.jks --ks-pass pass:dhstore --key-pass pass:dhstore \
+            --out app/build/outputs/apk/release/app-release-signed.apk "$APK"
+          "$APKS" verify --print-certs app/build/outputs/apk/release/app-release-signed.apk > apksigner-verify.txt
+          AAB=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
+          jarsigner -keystore dh-release.jks -storepass dhstore -keypass dhstore "$AAB" dh
+          cp "$AAB" app/build/outputs/bundle/release/app-release-signed.aab
+      - name: Provenance
+        working-directory: dh-android
+        run: |
+          SAPK=app/build/outputs/apk/release/app-release-signed.apk
+          SAAB=app/build/outputs/bundle/release/app-release-signed.aab
+          {
+            echo "{"
+            echo "  \"commit_sha\": \"${GITHUB_SHA}\","
+            echo "  \"run_id\": \"${GITHUB_RUN_ID}\","
+            echo "  \"repository\": \"${GITHUB_REPOSITORY}\","
+            echo "  \"apk_sha256\": \"$(sha256sum $SAPK | cut -d' ' -f1)\","
+            echo "  \"aab_sha256\": \"$(sha256sum $SAAB | cut -d' ' -f1)\""
+            echo "}"
+          } > provenance.json
+          cat provenance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dh-release
+          path: |
+            dh-android/app/build/outputs/apk/release/app-release-signed.apk
+            dh-android/app/build/outputs/bundle/release/app-release-signed.aab
+            dh-android/provenance.json
+            dh-android/apksigner-verify.txt
