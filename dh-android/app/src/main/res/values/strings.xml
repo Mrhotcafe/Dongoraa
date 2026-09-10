@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">A simple Android app tha</string>
-  <string name="headline">A simple Android app that greets the user with a headline</string>
+  <string name="app_name">Build a minimal Android</string>
+  <string name="headline">Build a minimal Android app whose home screen displays the h</string>
 </resources>
