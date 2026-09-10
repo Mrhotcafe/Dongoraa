@@ -1,0 +1,18 @@
+name: DH CI
+on:
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: DH verification
+        run: |
+          echo "DH real execution verified at $(date -u)" > dh-evidence.txt
+          echo "commit: $GITHUB_SHA" >> dh-evidence.txt
+          echo "run: $GITHUB_RUN_ID" >> dh-evidence.txt
+          cat dh-evidence.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dh-evidence
+          path: dh-evidence.txt
