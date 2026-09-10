@@ -19,7 +19,10 @@ class NoiseRemoval(
 
     override fun process(channels: Array<FloatArray>, sr: Int) {
         if (bypass) return
-        for (c in channels.indices) channels[c] = processChannel(channels[c], sr)
+        for (c in channels.indices) {
+            val out = processChannel(channels[c], sr)
+            System.arraycopy(out, 0, channels[c], 0, channels[c].size)
+        }
     }
 
     private fun processChannel(x: FloatArray, sr: Int): FloatArray {
