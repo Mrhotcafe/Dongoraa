@@ -61,6 +61,16 @@ fun EditorScreen(fileName: String, onBack: () -> Unit) {
             Text(src.nameWithoutExtension, color = OnBg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Text("Non-destructive: edits render to a new file; the original stays intact.",
                 color = Muted, fontSize = 11.sp)
+            if (tests.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).padding(12.dp)) {
+                    Text("DSP self-tests", color = OnBg, fontWeight = FontWeight.SemiBold)
+                    tests.forEach { (n, ok, d) ->
+                        Text("${if (ok) "✓" else "✗"} $n — $d", color = if (ok) Accent else Danger,
+                            fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
             Spacer(Modifier.height(6.dp))
             run {
                 // Chain order: Gate → Noise Removal → De-Esser → Pultec EQ → Compressor → Gain → Limiter
@@ -118,16 +128,6 @@ fun EditorScreen(fileName: String, onBack: () -> Unit) {
                 }
             }
 
-            if (tests.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).padding(12.dp)) {
-                    Text("DSP self-tests", color = OnBg, fontWeight = FontWeight.SemiBold)
-                    tests.forEach { (n, ok, d) ->
-                        Text("${if (ok) "✓" else "✗"} $n — $d", color = if (ok) Accent else Danger,
-                            fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                    }
-                }
-            }
             Spacer(Modifier.height(80.dp))
         }
 
