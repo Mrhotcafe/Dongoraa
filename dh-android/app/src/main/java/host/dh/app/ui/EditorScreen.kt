@@ -150,7 +150,9 @@ fun EditorScreen(fileName: String, onBack: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             TextButton(onClick = {
                 val r = DspChain.selfTest(); tests = r
-                status = "DSP self-tests: ${r.count { it.second }}/${r.size} passed"
+                val fails = r.filter { !it.second }.joinToString(", ") { it.first.substringBefore(" ") }
+                status = "DSP self-tests: ${r.count { it.second }}/${r.size} passed" +
+                    if (fails.isNotEmpty()) " — fail: $fails" else " ✓"
             }) { Text("Run DSP self-tests", color = Accent) }
         }
     }
