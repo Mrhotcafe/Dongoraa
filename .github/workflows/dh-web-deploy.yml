@@ -1,0 +1,31 @@
+name: DH Web Deploy
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate release site
+        run: |
+          mkdir -p site
+          {
+            echo "<!doctype html><meta charset=utf-8><title>DH Deploy</title>"
+            echo "<h1>DH deployment</h1>"
+            echo "<p>commit: ${GITHUB_SHA}</p>"
+            echo "<p>run: ${GITHUB_RUN_ID}</p>"
+            echo "<p>repo: ${GITHUB_REPOSITORY}</p>"
+          } > site/index.html
+          echo "{\"commit\":\"${GITHUB_SHA}\",\"run_id\":\"${GITHUB_RUN_ID}\",\"repository\":\"${GITHUB_REPOSITORY}\"}" > site/deploy.json
+          cat site/deploy.json
+      - uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dh-deploy-evidence
+          path: site/
