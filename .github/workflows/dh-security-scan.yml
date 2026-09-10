@@ -1,0 +1,39 @@
+name: DH Security Scan
+on:
+  workflow_dispatch:
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (Syft, CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+      - name: Summarize SBOM (components + licenses)
+        run: |
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open('sbom.cyclonedx.json'))
+          except Exception:
+              d = {}
+          comps = d.get('components', []) or []
+          lic = {}
+          for c in comps:
+              for l in (c.get('licenses') or []):
+                  obj = l.get('license') or {}
+                  lid = obj.get('id') or obj.get('name') or l.get('expression') or 'UNKNOWN'
+                  lic[lid] = lic.get(lid, 0) + 1
+          json.dump({'components': len(comps), 'licenses': lic}, open('sbom-summary.json', 'w'), indent=1)
+          print('components', len(comps), 'licenses', lic)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dh-sbom
+          path: |
+            sbom.cyclonedx.json
+            sbom-summary.json
