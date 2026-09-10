@@ -90,21 +90,19 @@ class DeEsser(
 
     override fun process(channels: Array<FloatArray>, sr: Int) {
         if (bypass) return
-        val atk = exp(-1f / (sr * 0.001f)); val rel = exp(-1f / (sr * 0.05f))
+        val rel = exp(-1f / (sr * 0.02f))
+        val thr = db2lin(thresholdDb)
         for (c in channels.indices) {
             val x = channels[c]
-            val hp = Biquad().apply { highpass(sr, freq, 0.7f) }
-            val high = FloatArray(x.size)
-            for (i in x.indices) high[i] = hp.processOne(x[i])
+            val lp = Biquad().apply { lowpass(sr, freq, 0.707f) }
             var env = 0f
-            val thr = db2lin(thresholdDb)
             for (i in x.indices) {
-                val a = abs(high[i])
-                env = if (a > env) atk * env + (1 - atk) * a else rel * env + (1 - rel) * a
-                var g = 1f
-                if (env > thr) g = 1f - amount * (1f - thr / env)
-                // subtract the reduced portion of the high band
-                x[i] = x[i] - high[i] * (1f - g)
+                val low = lp.processOne(x[i])   // complementary split
+                val high = x[i] - low
+                val a = abs(high)
+                env = if (a > env) a else rel * env + (1 - rel) * a
+                val g = if (env > thr) (1f - amount * (1f - thr / env)) else 1f
+                x[i] = low + g * high
             }
         }
     }
