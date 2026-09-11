@@ -17,31 +17,42 @@ jobs:
       - name: Build release APK + AAB
         working-directory: dh-android
         run: gradle assembleRelease bundleRelease --no-daemon --stacktrace
-      - name: Generate keystore and sign artifacts
+      - name: Sign artifacts with stable DH keystore
         working-directory: dh-android
+        env:
+          DH_KEYSTORE_B64: ${{ secrets.DH_KEYSTORE_B64 }}
+          DH_KEYSTORE_PASS: ${{ secrets.DH_KEYSTORE_PASS }}
+          DH_KEY_ALIAS: ${{ secrets.DH_KEY_ALIAS }}
         run: |
-          keytool -genkeypair -v -keystore dh-release.jks -alias dh -keyalg RSA -keysize 2048 \
-            -validity 10000 -storepass dhstore -keypass dhstore \
-            -dname "CN=DH, OU=DH, O=DH, L=NA, ST=NA, C=NA"
+          if [ -n "$DH_KEYSTORE_B64" ]; then
+            echo "Signing with the persistent DH release keystore (consistent across versions)"
+            echo "$DH_KEYSTORE_B64" | base64 -d > dh-release.p12
+            KS_FILE=dh-release.p12; KS_TYPE=PKCS12; KS_PASS="$DH_KEYSTORE_PASS"; KS_ALIAS="$DH_KEY_ALIAS"
+          else
+            echo "No DH_KEYSTORE_B64 secret found; generating an ephemeral keystore (fallback only)"
+            keytool -genkeypair -v -keystore dh-release.jks -alias dh -keyalg RSA -keysize 2048 -validity 10000 -storepass dhstore -keypass dhstore -dname "CN=DH, OU=DH, O=DH, L=NA, ST=NA, C=NA"
+            KS_FILE=dh-release.jks; KS_TYPE=JKS; KS_PASS=dhstore; KS_ALIAS=dh
+          fi
           BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
           APKS="$ANDROID_HOME/build-tools/$BT/apksigner"
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
-          "$APKS" sign --ks dh-release.jks --ks-pass pass:dhstore --key-pass pass:dhstore \
-            --out app/build/outputs/apk/release/app-release-signed.apk "$APK"
+          "$APKS" sign --ks "$KS_FILE" --ks-key-alias "$KS_ALIAS" --ks-pass pass:"$KS_PASS" --key-pass pass:"$KS_PASS" --out app/build/outputs/apk/release/app-release-signed.apk "$APK"
           "$APKS" verify --print-certs app/build/outputs/apk/release/app-release-signed.apk > apksigner-verify.txt
           AAB=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
-          jarsigner -keystore dh-release.jks -storepass dhstore -keypass dhstore "$AAB" dh
+          jarsigner -keystore "$KS_FILE" -storetype "$KS_TYPE" -storepass "$KS_PASS" -keypass "$KS_PASS" "$AAB" "$KS_ALIAS"
           cp "$AAB" app/build/outputs/bundle/release/app-release-signed.aab
       - name: Provenance
         working-directory: dh-android
         run: |
           SAPK=app/build/outputs/apk/release/app-release-signed.apk
           SAAB=app/build/outputs/bundle/release/app-release-signed.aab
+          CERT=$(grep -i "certificate SHA-256 digest" apksigner-verify.txt | head -1 | awk '{print $NF}')
           {
             echo "{"
             echo "  \"commit_sha\": \"${GITHUB_SHA}\","
             echo "  \"run_id\": \"${GITHUB_RUN_ID}\","
             echo "  \"repository\": \"${GITHUB_REPOSITORY}\","
+            echo "  \"signer_cert_sha256\": \"${CERT}\","
             echo "  \"apk_sha256\": \"$(sha256sum $SAPK | cut -d' ' -f1)\","
             echo "  \"aab_sha256\": \"$(sha256sum $SAAB | cut -d' ' -f1)\""
             echo "}"
